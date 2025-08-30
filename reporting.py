@@ -33,7 +33,7 @@ async def send_mcap_update(chat_id, token_address, coin_name, current_mcap, buy_
         return text, image, message_id
     return None, None, None
 
-async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot, history):
+async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot, history, users):
     """Generate a 'ZK Speed' PnL card with dynamic character and portfolio chart."""
     for record in buy_records:
         if record["token_address"] == token_address:
@@ -52,8 +52,8 @@ async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot,
                        f"{int(days)}d {int(hours)}h {int(minutes)}m" if days else \
                        f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
 
-            # Custom name
-            custom_name = self.users[chat_id].get("custom_name", f"Ze King👑 {chat_id}")
+            # Custom name (assuming access via users dict)
+            custom_name = users[chat_id].get("custom_name", f"Ze King👑 {chat_id}")
 
             # Generate meme character via Gemini API
             profit_level = sol_profit / sol_invested if sol_invested else 0
@@ -64,7 +64,7 @@ async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot,
                 "https://api.gemini.com/v1/generate",
                 json={"prompt": meme_prompt, "api_key": GEMINI_API_KEY}
             )
-            character_img = BytesIO(response.content) if response.status_code == 200 else None
+            character_img = io.BytesIO(response.content) if response.status_code == 200 else None
 
             # Create HD image (1920x1080)
             img = Image.new("RGB", (1920, 1080), color=(0, 0, 0))  # Black gradient space
@@ -112,11 +112,11 @@ async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot,
             return buffer
     return None
 
-async def generate_portfolio_chart(chat_id, period):
+async def generate_portfolio_chart(chat_id, period, users):
     """Generate a portfolio growth chart."""
-    bot = self.users[chat_id]["bot"]
-    data = self.users[chat_id]["portfolio_data"]
-    dates, growth = self._get_growth_data(data, period)
+    bot = users[chat_id]["bot"]
+    data = users[chat_id]["portfolio_data"]
+    dates, growth = _get_growth_data(data, period)
 
     plt.figure(figsize=(19.2, 10.8))  # HD resolution
     plt.plot(dates, growth, color="blue", linewidth=2)
@@ -129,6 +129,42 @@ async def generate_portfolio_chart(chat_id, period):
     plt.savefig(buffer, format="png", dpi=100)
     buffer.seek(0)
     return buffer
+
+def _get_growth_data(data, period):
+    """Helper to get growth data based on period."""
+    start_time = data["start_time"]
+    current_time = time.time()
+    dates = []
+    growth = []
+    if period == "this_month":
+        start = current_time - 30 * 24 * 3600
+    elif period == "last_month":
+        start = current_time - 60 * 24 * 3600
+        end = current_time - 30 * 24 * 3600
+    elif period == "last_3_months":
+        start = current_time - 90 * 24 * 3600
+    elif period == "last_6_months":
+        start = current_time - 180 * 24 * 3600
+    elif period == "1_year":
+        start = current_time - 365 * 24 * 3600
+    else:  # Custom
+        start = current_time - 365 * 24 * 3600  # Default to 1 year if custom not implemented
+    for t, g in zip(data["timestamps"], data["growth"]):
+        if t >= start and (period != "last_month" or t <= end):
+            dates.append(time.strftime("%Y-%m-%d", time.localtime(t)))
+            growth.append(g)
+    if current_time - start_time > 365 * 24 * 3600:
+        data.clear()  # Delete after 1 year
+    return dates, growth
+
+async def get_token_status(chat_id, token_address, bot, users):
+    """Fetch token status including coin name, MCap, and profit percentage."""
+    coin_name = await bot.fetch_coin_name(token_address)
+    current_mcap = await bot.fetch_token_mcap(token_address)
+    holdings = next((r["amount"] for r in bot.buy_records if r["token_address"] == token_address and r["sell_mcap"] is None), 0)
+    buy_mcap = next((r["buy_mcap"] for r in bot.buy_records if r["token_address"] == token_address and r["sell_mcap"] is None), 0)
+    profit = ((current_mcap - buy_mcap) / buy_mcap * 100) if buy_mcap and current_mcap else 0
+    return coin_name, current_mcap, profit if holdings > 0 else (coin_name, current_mcap, 0)
 
 async def cleanup_history(chat_id, users):
     """Remove history entries older than 90 days (repeated cycle)."""
