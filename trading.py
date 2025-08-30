@@ -24,7 +24,7 @@ class TradingBot:
 
             balance = await self.client.get_balance(self.keypair.pubkey())
             if balance.value / 1e9 < total_cost:
-                return False, "Insufficient balance"
+                return False, "Insufficient balance to buy with {amount} ◎"
 
             await asyncio.sleep(random.uniform(0.01, 0.1))  # Anti-MEV
             tx = Transaction().add(
@@ -48,7 +48,7 @@ class TradingBot:
                 "sell_time": None,
                 "manual": manual
             })
-            return True, f"Buy executed for {token_address}: {tx_resp.value}"
+            return True, f"Buy executed for {token_address} with {amount} ◎: {tx_resp.value}"
 
         except Exception as e:
             return False, f"Error executing buy: {e}"
@@ -77,7 +77,7 @@ class TradingBot:
                     record["sell_mcap"] = mcap
                     record["sell_time"] = time.time()
                     break
-            return True, f"Sell executed for {token_address}: {tx_resp.value}", mcap
+            return True, f"Sell executed for {token_address} with {amount} ◎: {tx_resp.value}", mcap
 
         except Exception as e:
             return False, f"Error executing sell: {e}", None
@@ -188,6 +188,6 @@ class TradingBot:
                 return pairs[0].get("baseToken", {}).get("name", "Unknown") if pairs else "Unknown"
 
     async def withdraw(self, amount, destination, fee_buffer=None, fee_congestion=None):
-    """Delegate withdrawal to withdrawal_handler."""
-    from withdrawal_handler import handle_withdrawal
-    return await handle_withdrawal(self.keypair.pubkey(), self, amount, destination, fee_buffer, fee_congestion)
+        """Delegate withdrawal to withdrawal_handler."""
+        from withdrawal_handler import handle_withdrawal
+        return await handle_withdrawal(self.keypair.pubkey(), self, amount, destination, fee_buffer, fee_congestion)
