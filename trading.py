@@ -188,24 +188,6 @@ class TradingBot:
                 return pairs[0].get("baseToken", {}).get("name", "Unknown") if pairs else "Unknown"
 
     async def withdraw(self, amount, destination, fee_buffer=None, fee_congestion=None):
-        """Withdraw SOL to another address."""
-        try:
-            amount = float(amount)
-            fee_buffer = fee_buffer if fee_buffer else GAS_BUFFER_DEFAULT
-            fee_congestion = fee_congestion if fee_congestion else CONGESTION_FEE_DEFAULT
-
-            await asyncio.sleep(random.uniform(0.01, 0.1))  # Anti-MEV
-            tx = Transaction().add(
-                transfer(
-                    TransferParams(
-                        from_pubkey=self.keypair.pubkey(),
-                        to_pubkey=destination,
-                        lamports=int(amount * 1e9)
-                    )
-                )
-            )
-            tx_resp = await self.client.send_transaction(tx, self.keypair)
-            return True, f"Withdrawal of {amount} ◎ to {destination}: {tx_resp.value}"
-
-        except Exception as e:
-            return False, f"Error executing withdrawal: {e}"
+    """Delegate withdrawal to withdrawal_handler."""
+    from withdrawal_handler import handle_withdrawal
+    return await handle_withdrawal(self.keypair.pubkey(), self, amount, destination, fee_buffer, fee_congestion)
