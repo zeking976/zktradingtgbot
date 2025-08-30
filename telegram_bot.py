@@ -113,10 +113,16 @@ class TelegramBot:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.message.reply_text("Select portfolio growth period:", reply_markup=reply_markup)
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        chat_id = update.effective_chat.id
-        text = update.message.text
-        state = context.user_data.get("state")
+    # Replace the withdraw section in handle_message
+elif state == "withdraw" and len(parts) in [2, 4]:
+    amount, destination = parts[0], parts[1]
+    fee_buffer = float(parts[2]) if len(parts) >= 3 else None
+    fee_congestion = float(parts[3]) if len(parts) == 4 else None
+    success, msg, tx_hash = await bot.withdraw(amount, destination, fee_buffer, fee_congestion)
+    if success:
+        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("View on Solscan", url=f"https://solscan.io/tx/{tx_hash}")]]))
+    else:
+        await update.message.reply_text(msg)
 
         if state == "awaiting_key":
             try:
