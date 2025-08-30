@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from cryptography.fernet import Fernet
 from config import TELEGRAM_BOT_TOKEN, OWNER_TELEGRAM_ID, NAME_UPDATE_COOLDOWN
 from trading import TradingBot
-from reporting import send_token_notification, send_mcap_update, generate_pnl_card, generate_portfolio_chart
+from reporting import send_token_notification, send_mcap_update, generate_pnl_card, generate_portfolio_chart, get_token_status
 from solders.keypair import Keypair
 import os
 from reportlab.lib.pagesizes import letter
@@ -19,7 +19,7 @@ load_dotenv('t.env')
 class TelegramBot:
     def __init__(self):
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-        self.users = {}  # {chat_id: {"private_key": encrypted_key, "bot": TradingBot, "history": {}, "custom_name": str, "last_name_update": float, "portfolio_data": {}}}
+        self.users = {}  # {chat_id: {"private_key": encrypted_key, "bot": TradingBot, "history": {}, "custom_name": str, "last_name_update": float, "portfolio_data": {}, "last_buy_amount": float, "last_token": str}}
         self.key = Fernet.generate_key()
         self.cipher = Fernet(self.key)
         self.pending_deletions = {}
@@ -84,9 +84,9 @@ class TelegramBot:
                 return
             context.user_data["state"] = data
             if data == "buy":
-                await query.message.reply_text("Enter token address and amount (e.g., <address> <amount> [buffer] [congestion]).")
+                await query.message.reply_text("Enter token address (e.g., <address>).")
             elif data == "sell":
-                await query.message.reply_text("Enter token address and amount (e.g., <address> <amount> [buffer] [congestion]).")
+                await query.message.reply_text("Enter token address to sell (e.g., <address>).")
             elif data == "swap":
                 await query.message.reply_text("Enter from_token, to_token, amount (e.g., <from> <to> <amount> [buffer] [congestion]).")
             elif data == "limit_order":
@@ -112,17 +112,64 @@ class TelegramBot:
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.message.reply_text("Select portfolio growth period:", reply_markup=reply_markup)
+        elif data.startswith("refresh_buy_"):
+            token = data.split("_")[2]
+            status = await get_token_status(chat_id, token, self.users[chat_id]["bot"])
+            if status:
+                coin_name, mcap, _ = status
+                keyboard = [
+                    [InlineKeyboardButton("Refresh", callback_data=f"refresh_buy_{token}")],
+                    [InlineKeyboardButton("Custom Amount", callback_data=f"custom_buy_{token}")],
+                    [InlineKeyboardButton("Buy", callback_data=f"buy_now_{token}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.message.reply_text(f"Token: {coin_name}\nMCap: ${mcap:,.2f}\nEnter SOL amount to buy:", reply_markup=reply_markup)
+        elif data.startswith("refresh_sell_"):
+            token = data.split("_")[2]
+            status = await get_token_status(chat_id, token, self.users[chat_id]["bot"])
+            if status:
+                coin_name, mcap, profit = status
+                emoji = "🟩" if profit > 0 else "🟥"
+                keyboard = [
+                    [InlineKeyboardButton("Refresh", callback_data=f"refresh_sell_{token}")],
+                    [InlineKeyboardButton("25%", callback_data=f"sell_25_{token}"),
+                     InlineKeyboardButton("50%", callback_data=f"sell_50_{token}"),
+                     InlineKeyboardButton("100%", callback_data=f"sell_100_{token}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.message.reply_text(f"Token: {coin_name}\nMCap: ${mcap:,.2f}\nProfit: {profit:.2f}% {emoji}", reply_markup=reply_markup)
+        elif data.startswith("custom_buy_"):
+            token = data.split("_")[2]
+            last_amount = self.users[chat_id].get("last_buy_amount", 0.1)  # Default to 0.1 SOL if none
+            await query.message.reply_text(f"Enter custom SOL amount for {token} (default: {last_amount} ◎):")
+            context.user_data["state"] = f"custom_buy_{token}"
+        elif data.startswith("buy_now_"):
+            token = data.split("_")[2]
+            amount = self.users[chat_id].get("last_buy_amount", 0.1)
+            fee_buffer = None
+            fee_congestion = None
+            success, msg = await self.users[chat_id]["bot"].buy_token(token, amount, fee_buffer, fee_congestion, False)
+            await query.message.reply_text(msg)
+        elif data.startswith("sell_"):
+            parts = data.split("_")
+            percentage = float(parts[1])
+            token = parts[2]
+            status = await get_token_status(chat_id, token, self.users[chat_id]["bot"])
+            if status:
+                _, _, profit = status
+                holdings = next((r["amount"] for r in self.users[chat_id]["bot"].buy_records if r["token_address"] == token and r["sell_mcap"] is None), 0)
+                sell_amount = holdings * (percentage / 100) if percentage < 100 else holdings
+                fee_buffer = None
+                fee_congestion = None
+                success, msg, mcap = await self.users[chat_id]["bot"].sell_token(token, sell_amount, fee_buffer, fee_congestion)
+                if success and percentage == 100:
+                    await generate_pnl_card(chat_id, token, mcap, self.users[chat_id]["bot"].buy_records, self.app.bot, self.users[chat_id]["history"])
+                await query.message.reply_text(msg)
 
-    # Replace the withdraw section in handle_message
-elif state == "withdraw" and len(parts) in [2, 4]:
-    amount, destination = parts[0], parts[1]
-    fee_buffer = float(parts[2]) if len(parts) >= 3 else None
-    fee_congestion = float(parts[3]) if len(parts) == 4 else None
-    success, msg, tx_hash = await bot.withdraw(amount, destination, fee_buffer, fee_congestion)
-    if success:
-        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("View on Solscan", url=f"https://solscan.io/tx/{tx_hash}")]]))
-    else:
-        await update.message.reply_text(msg)
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat_id = update.effective_chat.id
+        text = update.message.text
+        state = context.user_data.get("state")
 
         if state == "awaiting_key":
             try:
@@ -134,7 +181,9 @@ elif state == "withdraw" and len(parts) in [2, 4]:
                     "history": {},
                     "custom_name": f"Ze King👑 {chat_id}",
                     "last_name_update": time.time(),
-                    "portfolio_data": {"start_time": time.time(), "growth": [1.0], "timestamps": [time.time()]}
+                    "portfolio_data": {"start_time": time.time(), "growth": [1.0], "timestamps": [time.time()]},
+                    "last_buy_amount": 0.1,  # Default buy amount
+                    "last_token": None
                 }
                 await update.message.reply_text("Private key imported successfully.")
             except Exception:
@@ -148,20 +197,51 @@ elif state == "withdraw" and len(parts) in [2, 4]:
             bot = self.users[chat_id]["bot"]
             parts = text.split()
             try:
-                if state == "buy" and len(parts) in [2, 4]:
-                    token, amount = parts[0], parts[1]
-                    fee_buffer = float(parts[2]) if len(parts) >= 3 else None
-                    fee_congestion = float(parts[3]) if len(parts) == 4 else None
-                    success, msg = await bot.buy_token(token, amount, fee_buffer, fee_congestion, False)
-                    await update.message.reply_text(msg)
-                elif state == "sell" and len(parts) in [2, 4]:
-                    token, amount = parts[0], parts[1]
-                    fee_buffer = float(parts[2]) if len(parts) >= 3 else None
-                    fee_congestion = float(parts[3]) if len(parts) == 4 else None
-                    success, msg, mcap = await bot.sell_token(token, amount, fee_buffer, fee_congestion)
-                    if success:
-                        await generate_pnl_card(chat_id, token, mcap, bot.buy_records, self.app.bot, self.users[chat_id]["history"])
-                    await update.message.reply_text(msg)
+                if state == "buy" and len(parts) == 1:
+                    token = parts[0]
+                    self.users[chat_id]["last_token"] = token
+                    status = await get_token_status(chat_id, token, bot)
+                    if status:
+                        coin_name, mcap, _ = status
+                        keyboard = [
+                            [InlineKeyboardButton("Refresh", callback_data=f"refresh_buy_{token}")],
+                            [InlineKeyboardButton("Custom Amount", callback_data=f"custom_buy_{token}")],
+                            [InlineKeyboardButton("Buy", callback_data=f"buy_now_{token}")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await update.message.reply_text(f"Token: {coin_name}\nMCap: ${mcap:,.2f}\nEnter SOL amount to buy (default: {self.users[chat_id]['last_buy_amount']} ◎):", reply_markup=reply_markup)
+                elif state.startswith("custom_buy_"):
+                    token = state.split("_")[2]
+                    amount = float(text) if text.strip() else self.users[chat_id]["last_buy_amount"]
+                    self.users[chat_id]["last_buy_amount"] = amount
+                    status = await get_token_status(chat_id, token, bot)
+                    if status:
+                        coin_name, mcap, _ = status
+                        keyboard = [
+                            [InlineKeyboardButton("Refresh", callback_data=f"refresh_buy_{token}")],
+                            [InlineKeyboardButton("Buy", callback_data=f"buy_now_{token}")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await update.message.reply_text(f"Token: {coin_name}\nMCap: ${mcap:,.2f}\nBuying {amount} ◎", reply_markup=reply_markup)
+                        success, msg = await bot.buy_token(token, amount, None, None, False)
+                        await update.message.reply_text(msg)
+                    context.user_data["state"] = None
+                elif state == "sell" and len(parts) == 1:
+                    token = parts[0]
+                    self.users[chat_id]["last_token"] = token
+                    status = await get_token_status(chat_id, token, bot)
+                    if status:
+                        coin_name, mcap, profit = status
+                        emoji = "🟩" if profit > 0 else "🟥"
+                        keyboard = [
+                            [InlineKeyboardButton("Refresh", callback_data=f"refresh_sell_{token}")],
+                            [InlineKeyboardButton("25%", callback_data=f"sell_25_{token}"),
+                             InlineKeyboardButton("50%", callback_data=f"sell_50_{token}"),
+                             InlineKeyboardButton("100%", callback_data=f"sell_100_{token}")]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        holdings = next((r["amount"] for r in bot.buy_records if r["token_address"] == token and r["sell_mcap"] is None), 0)
+                        await update.message.reply_text(f"Token: {coin_name}\nMCap: ${mcap:,.2f}\nHoldings: {holdings} ◎\nProfit: {profit:.2f}% {emoji}", reply_markup=reply_markup)
                 elif state == "swap" and len(parts) in [3, 5]:
                     from_token, to_token, amount = parts[0], parts[1], parts[2]
                     fee_buffer = float(parts[3]) if len(parts) >= 4 else None
@@ -180,8 +260,11 @@ elif state == "withdraw" and len(parts) in [2, 4]:
                     amount, destination = parts[0], parts[1]
                     fee_buffer = float(parts[2]) if len(parts) >= 3 else None
                     fee_congestion = float(parts[3]) if len(parts) == 4 else None
-                    success, msg = await bot.withdraw(amount, destination, fee_buffer, fee_congestion)
-                    await update.message.reply_text(msg)
+                    success, msg, tx_hash = await bot.withdraw(amount, destination, fee_buffer, fee_congestion)
+                    if success:
+                        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("View on Solscan", url=f"https://solscan.io/tx/{tx_hash}")]]))
+                    else:
+                        await update.message.reply_text(msg)
                 elif state == "coin_profit" and len(parts) == 1:
                     token = parts[0]
                     await self.show_coin_profit(chat_id, token, update.message)
@@ -359,4 +442,9 @@ elif state == "withdraw" and len(parts) in [2, 4]:
         else:  # Custom
             start = current_time - 365 * 24 * 3600  # Default to 1 year if custom not implemented
         for t, g in zip(data["timestamps"], data["growth"]):
-            if t >= start and (
+            if t >= start and (period != "last_month" or t <= end):
+                dates.append(time.strftime("%Y-%m-%d", time.localtime(t)))
+                growth.append(g)
+        if current_time - start_time > 365 * 24 * 3600:
+            data.clear()  # Delete after 1 year
+        return dates, growth
