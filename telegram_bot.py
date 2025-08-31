@@ -1,7 +1,7 @@
 import asyncio
 import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, Filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from cryptography.fernet import Fernet
 from config import TELEGRAM_BOT_TOKEN, OWNER_TELEGRAM_ID, NAME_UPDATE_COOLDOWN
 from trading import TradingBot
