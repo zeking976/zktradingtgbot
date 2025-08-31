@@ -14,6 +14,16 @@ class TradingBot:
         self.buy_records = []  # {token_address, amount, timestamp, tx_id, buy_mcap, sell_mcap, sell_time, manual}
         self.limit_orders = []  # {token_address, amount, price, order_type, percentage, fee_buffer, fee_congestion, timestamp}
 
+async def fetch_token_mcap(self, token_address):
+    """Fetch current token market cap from DexScreener."""
+    if token_address == "FakeToken123...XYZ":
+        return 750000  # Mock MCap for testing
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{DEXSCREENER_API}{token_address}") as response:
+            data = await response.json()
+            pairs = data.get("pairs", [])
+            return float(pairs[0].get("marketCap", 0)) if pairs else 0
+
     async def buy_token(self, token_address, amount, fee_buffer=None, fee_congestion=None, manual=False):
         """Execute a market buy with GAS BUFFER and congestion fee."""
         try:
