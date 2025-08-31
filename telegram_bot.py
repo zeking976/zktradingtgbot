@@ -350,42 +350,46 @@ class TelegramBot:
 
         await message.reply_text(text or "No active positions.")
 
-async def test_pnl(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if chat_id not in self.users:
-        await update.message.reply_text("Please import a private key first.")
-        return
-    bot = self.users[chat_id]["bot"]
-    # Simulate a buy
-    token_address = "FakeToken123...XYZ"
-    amount = 1.0  # 1 SOL
-    success, msg = await bot.buy_token(token_address, amount, manual=True)
-    if success:
-        await update.message.reply_text(f"Test buy: {msg}")
-        # Simulate a sell after a delay
-        await asyncio.sleep(2)  # Mimic time passing
-        success, msg, mcap = await bot.sell_token(token_address, amount)
+class TelegramBot:
+    # ... (other methods like start, button, handle_message, etc.)
+
+    async def test_pnl(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Test PNL generation by simulating a buy-sell cycle."""
+        chat_id = update.effective_chat.id
+        if chat_id not in self.users:
+            await update.message.reply_text("Please import a private key first.")
+            return
+        bot = self.users[chat_id]["bot"]
+        # Simulate a buy
+        token_address = "FakeToken123...XYZ"
+        amount = 1.0  # 1 SOL
+        success, msg = await bot.buy_token(token_address, amount, manual=True)
         if success:
-            await update.message.reply_text(f"Test sell: {msg}")
-            # Generate and send PNL card with Gemini API
-            from reporting import generate_pnl_card
-            buffer = await generate_pnl_card(chat_id, token_address, mcap, bot.buy_records, bot, self.users[chat_id]["history"], self.users)
-            if buffer:
-                await self.app.bot.send_photo(chat_id=chat_id, photo=buffer)
+            await update.message.reply_text(f"Test buy: {msg}")
+            # Simulate a sell after a delay
+            await asyncio.sleep(2)  # Mimic time passing
+            success, msg, mcap = await bot.sell_token(token_address, amount)
+            if success:
+                await update.message.reply_text(f"Test sell: {msg}")
+                # Generate and send PNL card with Gemini API
+                from reporting import generate_pnl_card
+                buffer = await generate_pnl_card(chat_id, token_address, mcap, bot.buy_records, bot, self.users[chat_id]["history"], self.users)
+                if buffer:
+                    await self.app.bot.send_photo(chat_id=chat_id, photo=buffer)
+            else:
+                await update.message.reply_text(msg)
         else:
             await update.message.reply_text(msg)
-    else:
-        await update.message.reply_text(msg)
 
     def run(self):
-    """Start the Telegram bot with periodic checks."""
-    self.app.add_handler(CommandHandler("start", self.start))
-    self.app.add_handler(CallbackQueryHandler(self.button))
-    self.app.add_handler(MessageHandler(Filters.text & ~Filters.command, self.handle_message))
-    self.app.add_handler(CommandHandler("testpnl", self.test_pnl))  # From step 5
-    asyncio.create_task(self.check_manual_sells_periodically())
-    asyncio.create_task(self.check_limit_orders_periodically())
-    self.app.run_polling()
+        """Start the Telegram bot with periodic checks."""
+        self.app.add_handler(CommandHandler("start", self.start))
+        self.app.add_handler(CallbackQueryHandler(self.button))
+        self.app.add_handler(MessageHandler(Filters.text & ~Filters.command, self.handle_message))
+        self.app.add_handler(CommandHandler("testpnl", self.test_pnl))
+        asyncio.create_task(self.check_manual_sells_periodically())
+        asyncio.create_task(self.check_limit_orders_periodically())
+        self.app.run_polling()
 
     async def check_manual_sells_periodically(self):
         """Periodically check for manual sells."""
