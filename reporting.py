@@ -4,6 +4,7 @@ import io
 import time
 import random
 import requests
+import os
 from config import SOL_LOGO, GEMINI_API_KEY
 import matplotlib.pyplot as plt
 
@@ -29,7 +30,7 @@ async def send_mcap_update(chat_id, token_address, coin_name, current_mcap, buy_
         async with aiohttp.ClientSession() as session:
             async with session.get(f"https://api.dexscreener.com/latest/dex/tokens/{token_address}") as response:
                 data = await response.json()
-                image = await session.get(data["pairs"][0]["info"]["imageUrl"]).read() if data["pairs"] else None
+                image = await session.get(data["pairs"][0]["info"]["imageUrl"]).read() if data.get("pairs") and data["pairs"] else None
         return text, image, message_id
     return None, None, None
 
@@ -52,25 +53,35 @@ async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot,
                        f"{int(days)}d {int(hours)}h {int(minutes)}m" if days else \
                        f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
 
-            # Custom name (assuming access via users dict)
+            # Custom name from users dict
             custom_name = users[chat_id].get("custom_name", f"Ze King👑 {chat_id}")
 
-            # Generate meme character via Gemini API
-            profit_level = sol_profit / sol_invested if sol_invested else 0
-            hold_level = hold_time / (30 * 24 * 3600)  # Normalize to months
-            emotion = "happy" if profit_level > 0 else "sad" if profit_level < -0.5 else "neutral"
-            meme_prompt = f"cartoon crypto meme character, {emotion}, profit {profit_level:.2%}, held {hold_level:.1f} months, trending crypto memes (Pepe, Doge, BTC)"
-            response = requests.post(
-                "https://api.gemini.com/v1/generate",
-                json={"prompt": meme_prompt, "api_key": GEMINI_API_KEY}
-            )
-            character_img = io.BytesIO(response.content) if response.status_code == 200 else None
+            # Generate meme character via Gemini API with error handling
+            character_img = None
+            if GEMINI_API_KEY:
+                profit_level = sol_profit / sol_invested if sol_invested else 0
+                hold_level = hold_time / (30 * 24 * 3600)  # Normalize to months
+                emotion = "happy" if profit_level > 0 else "sad" if profit_level < -0.5 else "neutral"
+                meme_prompt = f"cartoon crypto meme character, {emotion}, profit {profit_level:.2%}, held {hold_level:.1f} months, trending crypto memes (Pepe, Doge, BTC)"
+                try:
+                    response = requests.post(
+                        "https://api.gemini.com/v1/generate",
+                        json={"prompt": meme_prompt, "api_key": GEMINI_API_KEY},
+                        timeout=10
+                    )
+                    if response.status_code == 200:
+                        character_img = io.BytesIO(response.content)
+                except requests.RequestException:
+                    pass  # Fallback to no character if API fails
 
             # Create HD image (1920x1080)
-            img = Image.new("RGB", (1920, 1080), color=(0, 0, 0))  # Black gradient space
+            img = Image.new("RGB", (1920, 1080), color=(0, 0, 0))
             draw = ImageDraw.Draw(img)
             font = ImageFont.load_default()
-            cool_font = ImageFont.truetype("arial.ttf", 40)  # Placeholder for cool font
+            try:
+                cool_font = ImageFont.truetype("arial.ttf", 40)  # Try to use a cool font
+            except:
+                cool_font = font  # Fallback to default if font fails
             draw.text((50, 50), custom_name, fill="#00BFFF", font=font)
             draw.text((50, 100), f"Coin: {await bot.fetch_coin_name(token_address)}", fill="white", font=font)
             draw.text((50, 150), f"Profit: {multiple:+.2f}x" if multiple >= 0 else f"Profit: -{-multiple:.2f}x",
@@ -89,13 +100,19 @@ async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot,
 
             # Add character (random left or right)
             if character_img:
-                char_img = Image.open(character_img)
-                char_img = char_img.resize((300, 300), Image.Resampling.LANCZOS)
-                position = (50, 450) if random.choice([True, False]) else (1570, 450)
-                img.paste(char_img, position, char_img if char_img.mode == "RGBA" else None)
+                try:
+                    char_img = Image.open(character_img)
+                    char_img = char_img.resize((300, 300), Image.Resampling.LANCZOS)
+                    position = (50, 450) if random.choice([True, False]) else (1570, 450)
+                    img.paste(char_img, position, char_img if char_img.mode == "RGBA" else None)
+                except Exception:
+                    pass  # Skip character if image processing fails
 
             # Add ZK Speed
-            draw.text((850, 950), "ZK Speed", fill="#00BFFF", font=ImageFont.truetype("arial.ttf", 60))
+            try:
+                draw.text((850, 950), "ZK Speed", fill="#00BFFF", font=ImageFont.truetype("arial.ttf", 60))
+            except:
+                draw.text((850, 950), "ZK Speed", fill="#00BFFF", font=font)  # Fallback font
 
             # Save as JPG
             buffer = io.BytesIO()
@@ -107,7 +124,7 @@ async def generate_pnl_card(chat_id, token_address, sell_mcap, buy_records, bot,
                 history[token_address] = {
                     "pnl_card": buffer,
                     "sell_time": record["sell_time"],
-                    "expiration": record["sell_time"] + 90 * 24 * 3600  # 90 days (repeated)
+                    "expiration": record["sell_time"] + 90 * 24 * 3600
                 }
             return buffer
     return None
