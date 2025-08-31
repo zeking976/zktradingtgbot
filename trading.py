@@ -5,7 +5,13 @@ from solana.rpc.async_api import AsyncClient
 from solana.transaction import Transaction
 from solana.system_program import TransferParams, transfer
 from solders.keypair import Keypair
-from config import RPC_ENDPOINT, GAS_BUFFER_DEFAULT, CONGESTION_FEE_DEFAULT, FEE_PERCENTAGES
+from config import (
+    RPC_ENDPOINT,
+    GAS_BUFFER_DEFAULT,
+    CONGESTION_FEE_DEFAULT,
+    FEE_PERCENTAGES,
+    DEXSCREENER_API,
+) 
 
 class TradingBot:
     def __init__(self, private_key):
