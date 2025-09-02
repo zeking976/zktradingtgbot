@@ -1,29 +1,18 @@
-import os
+# Configuration file for ZKET_TG_Tradingbot
 from dotenv import load_dotenv
+import os
 
-# Load from ~/t.env
-dotenv_path = os.path.expanduser("~/t.env")
-load_dotenv(dotenv_path=dotenv_path)
+# Load environment variables from t.env
+load_dotenv('t.env')
 
-# Solana configuration
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")
-RPC_ENDPOINT = os.getenv("RPC_ENDPOINT")
-RPC_WEBSOCKET_ENDPOINT = os.getenv("RPC_WEBSOCKET_ENDPOINT")
+# Solana RPC Endpoint (default, can be overridden in t.env)
+RPC_ENDPOINT = os.getenv("RPC_ENDPOINT", "https://api.mainnet-beta.solana.com")
 
-# Telegram configuration
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
-
-# Trading configuration
-NUM_BUYS = int(os.getenv("NUM_BUYS", 10))
-BUY_AMOUNT = float(os.getenv("BUY_AMOUNT", 0.1))
-TRANSACTION_FEE = float(os.getenv("TRANSACTION_FEE", 0.001))
-
-# Filter thresholds
-MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", 1000))
-MAX_TOKEN_AGE_MINUTES = float(os.getenv("MAX_TOKEN_AGE_MINUTES", 60))
-MAX_TOP_10_HOLDERS_PERCENT = float(os.getenv("MAX_TOP_10_HOLDERS_PERCENT", 50))
-
-# Pump.fun program ID
-PUMP_FUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+# Default Transaction Fees (overridable in t.env)
+GAS_BUFFER_DEFAULT = float(os.getenv("GAS_BUFFER", 0.001))  # Default gas buffer in SOL
+CONGESTION_FEE_DEFAULT = float(os.getenv("CONGESTION_FEE", 0.001))  # Default congestion fee in SOL
+FEE_PERCENTAGES = [0.5, 1.0, 2.0, 3.0, 4.0]  # Auto-calculated percentages
+# Solana Logo Emoji
+SOL_LOGO = "◎"
+# Custom Name Update Cooldown (14 days in seconds)
+NAME_UPDATE_COOLDOWN = 14 * 24 * 3600
