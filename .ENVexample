@@ -27,7 +27,7 @@ DEXSCREENER_API=https://api.dexscreener.com/latest/dex/tokens
 SOL_LOGO=◎
 
 # Optional: Fee percentages (defined in config.py, not typically in .env)
-# FEE_PERCENTAGES=0.5,1.0,2.0,3.0,4.0
+# FEE_PERCENTAGES=1.0
 
 # Optional: Name update cooldown in seconds (defined in config.py)
 # NAME_UPDATE_COOLDOWN=1209600  # 14 days
