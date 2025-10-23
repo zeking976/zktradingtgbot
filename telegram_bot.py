@@ -315,3 +315,96 @@ class TelegramBot:
             context.user_data["state"] = None
 
     async def show_
+
+
+
+
+
+# bot.py (partial update)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    CallbackQueryHandler,
+    filters,
+)
+from config import TELEGRAM_BOT_TOKEN, OWNER_TELEGRAM_ID, FEE_PERCENTAGES
+from trading_operations import TradingOperations
+
+class TelegramBot:
+    def __init__(self, trading_bot):
+        self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        self.users = {}  # {chat_id: {"portfolio_data": {...}, "last_token": str, "last_buy_amount": float, "fee_percentage": float, "history": [...]}}
+        self.trading_bot = trading_bot
+        self.trading_ops = TradingOperations(trading_bot, self, self.users)
+        self.setup_handlers()
+
+    async def set_fee(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /setfee command to configure default fee percentage."""
+        chat_id = update.effective_chat.id
+        args = context.args
+
+        if chat_id not in self.users:
+            self.users[chat_id] = {
+                "portfolio_data": {"growth": [1.0], "timestamps": [time.time()]},
+                "last_token": None,
+                "last_buy_amount": 0,
+                "fee_percentage": FEE_PERCENTAGES[0],
+                "history": []
+            }
+
+        if not args:
+            # Show available fee percentages as inline buttons
+            keyboard = [
+                [InlineKeyboardButton(f"{fee}%", callback_data=f"setfee_{fee}") for fee in FEE_PERCENTAGES[:3]],
+                [InlineKeyboardButton(f"{fee}%", callback_data=f"setfee_{fee}") for fee in FEE_PERCENTAGES[3:]]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"Current fee: {self.users[chat_id]['fee_percentage']}%\nSelect a new fee percentage:",
+                reply_markup=reply_markup
+            )
+            return
+
+        try:
+            fee_percentage = float(args[0])
+            if fee_percentage not in FEE_PERCENTAGES:
+                await update.message.reply_text(f"Invalid fee percentage. Choose from {FEE_PERCENTAGES}.")
+                return
+            self.users[chat_id]["fee_percentage"] = fee_percentage
+            await update.message.reply_text(f"Default fee percentage set to {fee_percentage}%.")
+        except (ValueError, IndexError):
+            await update.message.reply_text("Usage: /setfee <percentage> (e.g., /setfee 1.0)")
+
+    async def set_fee_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle fee percentage selection from inline buttons."""
+        query = update.callback_query
+        await query.answer()
+        chat_id = query.message.chat_id
+        fee_percentage = float(query.data.replace("setfee_", ""))
+
+        if fee_percentage not in FEE_PERCENTAGES:
+            await query.message.reply_text(f"Invalid fee percentage. Choose from {FEE_PERCENTAGES}.")
+            return
+
+        if chat_id not in self.users:
+            self.users[chat_id] = {
+                "portfolio_data": {"growth": [1.0], "timestamps": [time.time()]},
+                "last_token": None,
+                "last_buy_amount": 0,
+                "fee_percentage": FEE_PERCENTAGES[0],
+                "history": []
+            }
+
+        self.users[chat_id]["fee_percentage"] = fee_percentage
+        await query.message.reply_text(f"Default fee percentage set to {fee_percentage}%.")
+
+    def setup_handlers(self):
+        """Set up command and callback handlers."""
+        self.app.add_handler(CommandHandler("setfee", self.set_fee, filters=filters.ChatType.PRIVATE))
+        self.app.add_handler(CallbackQueryHandler(self.set_fee_callback, pattern=r"setfee_.*"))
+        # Existing handlers for /start, /buy, /sell, /order, /transfer, etc.
+        # ...
+
+    # Rest of the TelegramBot class (unchanged)
