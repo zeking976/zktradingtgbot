@@ -9,7 +9,7 @@ load_dotenv('t.env')
 RPC_ENDPOINT = os.getenv("RPC_ENDPOINT", "https://api.mainnet-beta.solana.com")
 
 # Transaction Fee Percentages
-FEE_PERCENTAGES = [0.5, 1.0, 2.0, 3.0, 4.0]  # Auto-calculated percentages
+FEE_PERCENTAGES = [1.0]  # Auto-calculated percentages
 
 # Solana Logo Emoji
 SOL_LOGO = "◎"
